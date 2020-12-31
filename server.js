@@ -3,6 +3,10 @@ const path = require('path');
 const http = require('http');
 const socketio = require('socket.io');
 
+// import utils
+const formatMessage = require('./utils/messages');
+const { userJoin, getCurrentUser, userLeave, getRoomUsers } = require('./utils/users');
+
 const app = express();
 const server = http.createServer(app);
 const io = socketio(server);
@@ -10,24 +14,49 @@ const io = socketio(server);
 // Set static folder
 app.use(express.static(path.join(__dirname, 'public')));
 
+const botName = 'ChatCord Bot';
+
 // Run when client connects
 io.on('connection', (socket) => {
-  console.log(' New WS Connection...');
+  socket.on('joinRoom', ({ username, room }) => {
+    const user = userJoin(socket.id, username, room);
 
-  // Welcome information
-  socket.emit('message', 'Welcome to ChatChord!');
+    socket.join(user.room);
 
-  // Brodcast when a user connects
-  socket.broadcast.emit('message', 'A user has joined the chat');
+    // Welcome information
+    socket.emit('message', formatMessage(botName, 'Welcome to ChatChord!'));
 
-  // Runs when client disconnects
-  socket.on('disconnect', () => {
-    io.emit('message', 'A user has left the chat');
+    // Brodcast when a user connects
+    socket.broadcast.to(user.room).emit('message', formatMessage(botName, `A ${user.username} has joined the chat`));
+
+    //Send Users and room info
+    io.to(user.room).emit('roomUsers', {
+      room: user.room,
+      users: getRoomUsers(user.room),
+    });
   });
 
   // Listen for chatMessage
   socket.on('chatMessage', (msg) => {
-    io.emit('message', msg);
+    const user = getCurrentUser(socket.id);
+
+    io.to(user.room).emit('message', formatMessage(user.username, msg));
+  });
+
+  // Runs when client disconnects
+  socket.on('disconnect', () => {
+    // UserLeave
+    const user = userLeave(socket.id);
+
+    console.log(user);
+    if (user) {
+      io.to(user.room).emit('message', formatMessage(botName, `A ${user.username} has left the chat`));
+      //Send Users and room info
+      io.to(user.room).emit('roomUsers', {
+        room: user.room,
+        users: getRoomUsers(user.room),
+      });
+    }
   });
 });
 
